@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.*
+!.env.example
+data/private/
+uploads/
+test-results/
+*.log
+.tools/
+data/*.xls
+data/*.xlsx
+data/*.csv
+.taste-skill/after/
+.taste-skill/before/
+.taste-skill/inspection/

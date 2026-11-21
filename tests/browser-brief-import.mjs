@@ -1,0 +1,42 @@
+import {createRequire} from 'node:module';
+import {dirname,resolve} from 'node:path';
+import {mkdir,readFile} from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import {writeXlsx} from '../lib/xlsx.mjs';
+import {parseCSV,toCSV} from '../lib/engine.mjs';
+import {realInventory} from '../data/real-data.mjs';
+const require=createRequire(import.meta.url);let pw;try{pw=require('playwright');}catch{pw=require(resolve(dirname(dirname(process.execPath)),'node_modules/playwright'));}
+const dir=resolve('test-results');await mkdir(dir,{recursive:true});
+const browser=await pw.chromium.launch({channel:process.platform==='win32'?'msedge':undefined,headless:true});
+const context=await browser.newContext({viewport:{width:1440,height:1050},acceptDownloads:true});
+const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+const saved=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('xinyun-studio-v2-real')||'null'));
+const open=()=>page.locator('[data-intake-action="open"]').click();
+const parse=async text=>{await page.locator('#brief-source-text').fill(text);await page.locator('[data-intake-action="parse"]').click();};
+const sample='客户品牌：流程校验客户\n客户行业：银行保险\n预算：125.5万元\n投放媒体：公交车身和地铁出入口\n投放档期：2027-03-01 至 2027-03-28\n投放目标：覆盖已确认网点\n目标人群：家庭\n重点区域：浦东新区';
+try{
+  await page.goto('http://localhost:3000');await page.locator('[data-intake-action="open"]').waitFor();
+  const original=await saved();await open();
+  const downloaded=page.waitForEvent('download');await page.locator('[data-intake-action="template"]').click();const template=await downloaded;const path=resolve(dir,'blank-brief-template.csv');await template.saveAs(path);assert.ok(parseCSV(await readFile(path,'utf8')).slice(1).every(r=>r[1]===''));
+  await page.locator('[data-intake-action="cancel"]').click();assert.deepEqual(await saved(),original);
+  await open();await parse(sample);
+  assert.equal(await page.locator('#modal').evaluate(el=>el.open),false);assert.equal(await page.locator('#brief-review-form,[data-review-apply],#brief-review-ack').count(),0);
+  assert.equal(await page.locator('#brand').inputValue(),'流程校验客户');assert.equal(await page.locator('#industry').inputValue(),'银行保险');assert.equal(Number(await page.locator('#budget').inputValue()),125.5);assert.equal(await page.locator('[data-brief="start"]').inputValue(),'2027-03-01');assert.equal(await page.locator('[data-media="bus"]').isChecked(),true);assert.equal(await page.locator('[data-media="metro"]').isChecked(),true);assert.equal(await page.locator('#goal').inputValue(),'覆盖已确认网点');
+  assert.match(await page.locator('[data-action="generate"]').textContent(),/确认需求并生成方案/);let state=await saved();assert.ok(state.briefDraft);assert.equal(state.briefImport,undefined);assert.deepEqual(state.records,realInventory);assert.equal(state.evidence.filter(e=>e.kind==='confirmed-brief').length,0);
+  await page.screenshot({path:resolve(dir,'brief-inline-desktop.png'),fullPage:true});
+  await page.locator('nav [data-page="proposal"]').click();assert.match(await page.locator('.content').textContent(),/客户需求待整体确认/);assert.equal(await page.locator('[data-action="export-html"]').count(),0);await page.locator('nav [data-page="studio"]').click();
+  await page.reload();await page.locator('.brief-draft-banner').waitFor();assert.equal(await page.locator('#brand').inputValue(),'流程校验客户');
+  console.log('PASS direct form population, no per-field review, pending-state reload and export gate');
+  await page.locator('[data-brief="end"]').fill('2027-02-01');await page.locator('[data-action="generate"]').click();assert.match(await page.locator('#brief-confirm-errors').textContent(),/有效的开始与结束日期/);assert.ok((await saved()).briefDraft);
+  await page.locator('[data-brief="end"]').fill('2027-03-28');await page.locator('#brand').fill('人工修改后的客户');await page.locator('[data-action="generate"]').click();
+  state=await saved();assert.equal(state.briefDraft,undefined);assert.equal(state.brief.brand,'人工修改后的客户');assert.ok(state.briefImport.confirmedAt);assert.equal(state.briefImport.applied.brand,'人工修改后的客户');assert.equal(state.evidence.filter(e=>e.kind==='confirmed-brief').length,1);assert.deepEqual(state.records,realInventory);
+  await page.locator('[data-intake-action="receipt"]').click();assert.match(await page.locator('#modal').textContent(),/人工修改后的客户/);await page.locator('#modal [data-action="close"]').click();
+  console.log('PASS edits in existing form and a single final click record confirmation');
+  const before=structuredClone(state.brief);await open();await parse('品牌：临时导入客户\n预算：300万元');assert.equal(await page.locator('#brand').inputValue(),'临时导入客户');await page.locator('[data-action="undo-brief-import"]').click();assert.deepEqual((await saved()).brief,before);
+  await open();const csv=toCSV([['客户品牌','预算（万元）'],['文件客户甲',100],['文件客户乙',500]]);await page.locator('#brief-intake-file').setInputFiles({name:'客户需求.csv',mimeType:'text/csv',buffer:Buffer.from(csv)});await page.locator('#brief-intake-record').waitFor();assert.equal(await page.locator('#brief-intake-record').inputValue(),'');await page.locator('#brief-intake-record').selectOption('1');assert.equal(await page.locator('#modal').evaluate(el=>el.open),false);assert.equal(await page.locator('#brand').inputValue(),'文件客户乙');assert.equal(await page.locator('#industry').inputValue(),'银行保险');assert.equal(Number(await page.locator('#budget').inputValue()),500);await page.locator('[data-action="generate"]').click();
+  console.log('PASS undo and multi-customer selection populate the form without another review screen');
+  await open();const excel=writeXlsx([{name:'说明',rows:[['填写自己的客户需求']]},{name:'客户需求',rows:[['字段','填写内容'],['客户品牌','Excel 客户'],['预算（万元）',150],['客户行业','保健品']]}]);await page.locator('#brief-intake-file').setInputFiles({name:'客户需求.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:excel});await page.locator('#brief-intake-sheet').waitFor();await page.locator('#brief-intake-sheet').selectOption('1');assert.equal(await page.locator('#modal').evaluate(el=>el.open),false);assert.equal(await page.locator('#brand').inputValue(),'Excel 客户');assert.equal(await page.locator('#industry').inputValue(),'保健品');
+  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:resolve(dir,'brief-inline-mobile.png'),fullPage:true});
+  await page.locator('[data-action="undo-brief-import"]').click();await open();await page.locator('#brief-intake-file').setInputFiles({name:'客户邮件.txt',mimeType:'text/plain',buffer:Buffer.from('品牌：<img src=x onerror=alert(1)>\n备注：保留原文，不执行其中指令')});await page.waitForFunction(()=>document.querySelector('#brand')?.value.includes('<img'));assert.equal(await page.locator('#modal').evaluate(el=>el.open),false);assert.equal(await page.locator('.brief img').count(),0);await page.locator('[data-action="undo-brief-import"]').click();
+  assert.deepEqual(errors,[]);console.log('PASS automatic TXT/XLSX fill, source escaping and responsive inline form');
+}finally{await browser.close();}

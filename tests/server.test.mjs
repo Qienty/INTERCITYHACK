@@ -1,0 +1,12 @@
+import test,{after,before} from 'node:test';
+import assert from 'node:assert/strict';
+import {server} from '../server.mjs';
+import {writeXlsx,readXlsx} from '../lib/xlsx.mjs';
+let base;
+before(async()=>{await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));base='http://127.0.0.1:'+server.address().port;});
+after(async()=>{await new Promise(resolve=>server.close(resolve));});
+test('app, stylesheet and browser modules are served with correct MIME types',async()=>{for(const [path,type]of [['/','text/html'],['/app.js','text/javascript'],['/styles.css','text/css'],['/lib/export.mjs','text/javascript']]){const r=await fetch(base+path);assert.equal(r.status,200);assert.match(r.headers.get('content-type'),new RegExp(type));}});
+test('environment, raw source workbooks and private data are not public',async()=>{for(const path of ['/.env','/.git/config','/server.mjs','/data/private/secret.csv','/lib/../../.env','/data/公交车身媒体库存.xlsx','/data/source-renames.json']){const r=await fetch(base+path);assert.equal(r.status,403);}});
+test('API export and import roundtrip real XLSX bytes',async()=>{const sheets=[{name:'库存',rows:[['编号','数量'],['测试',5]]}];const exported=await fetch(base+'/api/export-xlsx',{method:'POST',body:JSON.stringify({sheets})});assert.equal(exported.status,200);const bytes=Buffer.from(await exported.arrayBuffer());assert.deepEqual(readXlsx(bytes),sheets);const imported=await fetch(base+'/api/import-xlsx',{method:'POST',body:writeXlsx(sheets)});assert.equal(imported.status,200);assert.deepEqual((await imported.json()).sheets,sheets);});
+test('cross-origin POST and corrupt workbooks are rejected',async()=>{const blocked=await fetch(base+'/api/export-xlsx',{method:'POST',headers:{Origin:'https://evil.example'},body:'{}'});assert.equal(blocked.status,403);const corrupt=await fetch(base+'/api/import-xlsx',{method:'POST',body:'invalid'});assert.equal(corrupt.status,400);});
+test('missing model credentials yield an honest configuration message',async()=>{if(process.env.AI_API_KEY&&process.env.AI_BASE_URL&&process.env.AI_MODEL)return;const res=await fetch(base+'/api/strategy',{method:'POST',body:'{}'});assert.equal(res.status,503);assert.match((await res.json()).error,/尚未配置 AI/);});

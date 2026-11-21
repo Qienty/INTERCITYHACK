@@ -1,0 +1,58 @@
+import {createRequire} from 'node:module';
+import {dirname,resolve} from 'node:path';
+import {mkdir,readFile} from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import {realInventory,dataManifest} from '../data/real-data.mjs';
+import {parseCSV,calculatePlan} from '../lib/engine.mjs';
+const require=createRequire(import.meta.url);
+let pw;try{pw=require('playwright');}catch{pw=require(resolve(dirname(dirname(process.execPath)),'node_modules/playwright'));}
+const dir=resolve('test-results');await mkdir(dir,{recursive:true});
+const browser=await pw.chromium.launch({channel:process.platform==='win32'?'msedge':undefined,headless:true});
+const context=await browser.newContext({viewport:{width:1440,height:1050},acceptDownloads:true});
+const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+const rows=()=>page.locator('.resource-card tbody tr');
+const cardNext=()=>page.locator('.resource-card button').filter({hasText:'下一页'});
+try{
+  await page.goto('http://localhost:3000');await page.locator('.resource-card').waitFor();
+  assert.equal(await rows().count(),5);assert.match(await page.locator('.page-position').textContent(),/1 \/ 87/);
+  const first=await rows().first().textContent();await cardNext().click();assert.equal(await rows().count(),5);assert.notEqual(await rows().first().textContent(),first);
+  await page.locator('[data-list-toggle]').click();assert.equal(await page.locator('.resource-card table').isVisible(),false);
+  await page.locator('[data-list-toggle]').click();assert.match(await page.locator('.page-position').textContent(),/2 \/ 87/);
+  assert.equal(await page.locator('[data-action="show-all"]').count(),0);
+  console.log('PASS compact dashboard pagination and reversible collapse');
+  await page.locator('nav [data-page="resources"]').click();assert.equal(await rows().count(),10);
+  await page.getByRole('button',{name:'最后一页',exact:true}).click();assert.equal(await rows().count(),1);assert.match(await rows().first().textContent(),new RegExp(realInventory.at(-1).name));assert.equal(await cardNext().isDisabled(),true);
+  await page.locator('#resource-search').fill('955');assert.equal(await rows().count(),2);assert.match(await page.locator('.page-position').textContent(),/1 \/ 1/);assert.equal(await page.locator('#resource-search').evaluate(el=>el===document.activeElement),true);
+  await page.locator('#resource-search').fill('不存在的线路xyz');assert.match(await rows().textContent(),/没有符合/);assert.match(await page.locator('.list-count').textContent(),/共 0/);
+  await page.locator('#resource-search').fill('');await page.locator('[data-list-size]').selectOption('20');assert.equal(await rows().count(),20);
+  await cardNext().click();await page.locator('[data-filter="metro"]').click();assert.match(await page.locator('.list-count').textContent(),/共 0/);assert.match(await page.locator('.page-position').textContent(),/1 \/ 1/);
+  await page.locator('[data-filter="all"]').click();await page.locator('[data-list-size]').selectOption('10');
+  const dl=page.waitForEvent('download');await page.locator('.resource-card [data-action="inventory-export"]').click();const download=await dl;const path=resolve(dir,'pagination-inventory.csv');await download.saveAs(path);assert.equal(parseCSV(await readFile(path,'utf8')).length,432);
+  await page.locator('[data-list-toggle]').click();await page.evaluate(()=>dispatchEvent(new Event('beforeprint')));assert.equal(await rows().count(),431);assert.equal(await page.locator('.resource-card table').isVisible(),true);await page.evaluate(()=>dispatchEvent(new Event('afterprint')));assert.equal(await page.locator('.resource-card table').isVisible(),false);await page.locator('[data-list-toggle]').click();
+  console.log('PASS complete paging, search/filter reset, size changes, full export and print');
+  await page.locator('#materials-query').fill('1002');assert.ok(await page.locator('[data-material-type="inventory"]').count());assert.ok(await page.locator('[data-material-type="insight"]').count());assert.equal(await page.locator('#materials-query').evaluate(el=>el===document.activeElement),true);
+  await page.locator('[data-material-type="inventory"]').first().click();assert.match(await page.locator('#modal').textContent(),/库存详情/);await page.locator('#modal [data-action="close"]').click();
+  await page.locator('[data-material-type="insight"]').first().click();assert.match(await page.locator('#modal').textContent(),/年龄画像/);await page.locator('#modal [data-action="close"]').click();
+  await page.locator('#materials-query').fill('历史人流');await page.locator('[data-material-kind="insight"]').click();assert.equal(await page.locator('.material-result').count(),6);await page.locator('[data-material-page="2"]').click();assert.match(await page.locator('.material-page-position').textContent(),/2 \/ 5/);
+  await page.locator('#materials-query').fill('1002');assert.match(await page.locator('.material-page-position').textContent(),/1 \/ 1/);await page.locator('#materials-query').press('Enter');assert.equal(await page.locator('#materials-query').inputValue(),'1002');
+  await page.locator('[data-action="clear-materials"]').click();assert.equal(await page.locator('.material-result').count(),0);
+  await page.locator('#materials-query').fill('公交车身媒体库存.xlsx');await page.locator('[data-material-kind="file"]').click();assert.equal(await page.locator('.material-result').count(),1);await page.locator('.material-result').click();assert.match(await page.locator('#modal').textContent(),/431/);await page.locator('#modal [data-action="close"]').click();
+  await page.locator('#materials-query').fill('未提供且不存在的材料');assert.match(await page.locator('#materials-results').textContent(),/没有找到相关材料/);
+  await page.locator('[data-action="clear-materials"]').click();await page.locator('#materials-query').fill('1002');
+  await page.screenshot({path:resolve(dir,'pagination-resources.png'),fullPage:true});
+  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.equal(await page.locator('[data-list-toggle]').isVisible(),true);await page.screenshot({path:resolve(dir,'pagination-mobile.png'),fullPage:true});
+  console.log('PASS global material search, types, details, pagination, empty states and mobile width');
+  await page.locator('[data-action="clear-materials"]').click();await page.locator('nav [data-page="coverage"]').click();await page.locator('[data-action="add-evidence"]').click();
+  await page.locator('#evidence-form [name="title"]').fill('检索安全验证');await page.locator('#evidence-form [name="note"]').fill('<img src=x onerror=alert(1)>');await page.locator('#evidence-form button[type="submit"]').click();await page.locator('#materials-query').fill('检索安全验证');await page.locator('[data-material-type="evidence"]').click();assert.match(await page.locator('#modal').textContent(),/<img/);assert.equal(await page.locator('#modal img').count(),0);await page.locator('#modal [data-action="close"]').click();
+  assert.deepEqual(errors,[]);
+  // Quote-only fixture is scoped to a fresh throwaway browser context; source files stay untouched.
+  const quoteContext=await browser.newContext({viewport:{width:1440,height:1050}}),quotePage=await quoteContext.newPage();quotePage.on('pageerror',e=>errors.push(e.message));
+  const records=realInventory.filter(r=>r.available>0).slice(0,25).map(r=>({...r,unitPrice:10000,production:0,priceIncludesTax:true,periodDays:28,availableStart:'2027-01-01',availableEnd:'2027-12-31'}));
+  const brief={industry:'食品饮料',brand:'',budget:5000000,media:['bus'],start:'2027-03-01',end:'2027-03-28',discount:1,goal:''};
+  const expected=calculatePlan(records,brief,[]);assert.ok(expected.lines.length>10);
+  const seeded={records,brief,places:[],evidence:[],imports:[],sourceVersion:dataManifest.version};
+  await quoteContext.addInitScript(data=>localStorage.setItem('xinyun-studio-v2-real',JSON.stringify(data)),seeded);
+  await quotePage.goto('http://localhost:3000');assert.match(await quotePage.locator('.resource-card h2').textContent(),/本次投放媒体组合/);assert.equal(await quotePage.locator('.resource-card tbody tr').count(),5);
+  await quotePage.locator('nav [data-page="proposal"]').click();assert.equal(await quotePage.locator('.resource-card tbody tr').count(),10);const total=await quotePage.locator('.quote-total').textContent();await quotePage.getByRole('button',{name:'最后一页',exact:true}).click();assert.equal(await quotePage.locator('.resource-card tbody tr').count(),expected.lines.length%10||10);assert.equal(await quotePage.locator('.quote-total').textContent(),total);
+  await quoteContext.close();assert.deepEqual(errors,[]);console.log('PASS recommendation lists paginate while the complete quote total stays unchanged');
+}finally{await browser.close();}

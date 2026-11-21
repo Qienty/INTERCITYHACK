@@ -1,0 +1,16 @@
+{
+  "name": "xinyun-proposal-studio",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "上海新云传媒 · 户外媒体 AI 提案工作台",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "data:build": "python scripts/build-data.py"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
