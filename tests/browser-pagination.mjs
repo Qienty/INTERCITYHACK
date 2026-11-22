@@ -42,8 +42,8 @@ try{
   await page.locator('[data-action="clear-materials"]').click();await page.locator('#materials-query').fill('1002');
   await page.screenshot({path:resolve(dir,'pagination-resources.png'),fullPage:true});
   await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.equal(await page.locator('[data-list-toggle]').isVisible(),true);await page.screenshot({path:resolve(dir,'pagination-mobile.png'),fullPage:true});
-  console.log('PASS global material search, types, details, pagination, empty states and mobile width');
-  await page.locator('[data-action="clear-materials"]').click();await page.locator('nav [data-page="coverage"]').click();await page.locator('[data-action="add-evidence"]').click();
+  console.log('PASS global material search, types, details, pagination, empty states and mobile width');await page.setViewportSize({width:1440,height:1000});await page.evaluate(()=>scrollTo(0,0));
+  await page.evaluate(()=>document.querySelector('[data-action="clear-materials"]').click());if((await page.viewportSize()).width<=1100)await page.locator('[data-ui-nav]').click();await page.locator('nav [data-page="coverage"]').click();await page.locator('[data-action="add-evidence"]').click();
   await page.locator('#evidence-form [name="title"]').fill('检索安全验证');await page.locator('#evidence-form [name="note"]').fill('<img src=x onerror=alert(1)>');await page.locator('#evidence-form button[type="submit"]').click();await page.locator('#materials-query').fill('检索安全验证');await page.locator('[data-material-type="evidence"]').click();assert.match(await page.locator('#modal').textContent(),/<img/);assert.equal(await page.locator('#modal img').count(),0);await page.locator('#modal [data-action="close"]').click();
   assert.deepEqual(errors,[]);
   // Quote-only fixture is scoped to a fresh throwaway browser context; source files stay untouched.

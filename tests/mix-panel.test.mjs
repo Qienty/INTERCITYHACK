@@ -86,9 +86,9 @@ test('mix panel renders channel sections, steppers, quote rows and the ratio goa
   const html = mixPanelView(state, {...plan, demoAssumptions: ['假设 A']}, esc);
   assert.match(html, /data-mix-step="-1"/);
   assert.match(html, /data-mix-step="1"/);
-  assert.match(html, /data-mix-ratio/);
-  assert.match(html, /data-mix-tolerance/);
-  assert.match(html, /data-mix-hard/);
+  assert.doesNotMatch(html, /data-mix-ratio/);assert.match(html, /配比目标与容差只在左侧/);
+  assert.doesNotMatch(html, /data-mix-tolerance/);
+  assert.doesNotMatch(html, /data-mix-hard/);
   assert.match(html, /公交数量占比/);
   assert.match(html, /报价构成/);
   assert.match(html, /含税合计/);

@@ -13,7 +13,7 @@ const context=await browser.newContext({viewport:{width:1440,height:1050},accept
 const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
   await context.addInitScript(()=>{if(!sessionStorage.getItem('legacy-seeded')){localStorage.setItem('xinyun-studio-v1',JSON.stringify({records:[{id:'DEMO-LEGACY',demo:true,name:'旧缓存'}],brief:{brand:'旧缓存品牌'}}));sessionStorage.setItem('legacy-seeded','1');}});
-  await page.goto('http://localhost:3000');await page.locator('.strategy').waitFor();
+  await page.goto('http://localhost:3000');await page.locator('.proposal-workspace').waitFor();
   assert.equal(await page.locator('#brand').inputValue(),'');assert.equal(await page.locator('[data-brief="start"]').inputValue(),'');
   assert.match(await page.locator('.stats').textContent(),new RegExp(String(realInventory.length)));assert.match(await page.locator('.stats').textContent(),new RegExp(Number(dataManifest.summary.available).toLocaleString('zh-CN')));
   assert.equal(await page.evaluate(()=>localStorage.getItem('xinyun-studio-v1')),null);

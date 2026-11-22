@@ -35,7 +35,7 @@ try{
   assert.match(await page.locator('.demo-banner').innerText(),/测算假设|刊例测算/);
   assert.equal(await page.locator('.mix-channel').count(),2,'both selected channels appear');
   assert.ok(await page.locator('.mix-panel [data-mix-step="1"]').count()>0);
-  assert.ok(await page.locator('.mix-panel [data-mix-ratio]').count()===1);
+  assert.equal(await page.locator('.mix-panel [data-mix-ratio]').count(),0,'mix panel ratio is read only');assert.equal(await page.locator('[data-ratio-share]').count(),2,'left brief owns the ratio inputs');
   assert.ok(await page.locator('.mix-check').count()>0);
   assert.match(await page.locator('.mix-quote-row.total dd').innerText(),/¥/);
 
@@ -51,7 +51,7 @@ try{
   await page.locator('[data-budget="200"]').first().click();
   await page.waitForTimeout(600);
 
-  await page.locator('.mix-panel [data-mix-ratio]').evaluate((input)=>{input.value='60';input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));});
+  await page.locator('[data-ratio-share="bus"]').fill('60');await page.locator('[data-ratio-share="bus"]').press('Tab');
   await page.waitForTimeout(600);
   assert.equal((await saved()).brief.constraints.busShare,60);
   assert.match(await page.locator('.mix-ratio').innerText(),/实际/);

@@ -14,7 +14,7 @@ try{
   page.on('response',r=>{if(r.status()>=400&&/\.(css|ttf|js|mjs)(\?|$)/.test(r.url()))errors.push(r.status()+' '+r.url());});
   await page.goto(base);await page.locator('.proposal-workspace').waitFor();await page.evaluate(()=>document.fonts.ready);
   const navigate=async view=>{if(width<=1100)await page.locator('[data-ui-nav]').click();await page.locator('.nav [data-page="'+view+'"]').click();await page.evaluate(()=>scrollTo(0,0));};
-  for(const view of ['studio','campaign','resources','coverage','proposal','data']){
+  for(const view of ['studio','resources','coverage','proposal','data']){
    await navigate(view);
    const audit=await page.evaluate(()=>({view:document.body.dataset.page,width:innerWidth,scrollWidth:document.documentElement.scrollWidth,h1:document.querySelectorAll('h1').length,fontLoaded:document.fonts.check('14px Geist'),active:document.querySelector('.nav [aria-current=page]')?.dataset.page,small:[...document.querySelectorAll('h1,h2,h3,p,small,label,button,th,td,summary')].filter(e=>e.checkVisibility()).filter(e=>parseFloat(getComputedStyle(e).fontSize)<11).map(e=>e.textContent.slice(0,50))}));
    report.push(audit);assert.equal(audit.h1,1,view+' h1');assert.ok(audit.scrollWidth<=width,view+' overflow '+width);assert.ok(audit.fontLoaded,'Local Geist loaded');assert.equal(audit.active,view);assert.deepEqual(audit.small,[],view+' small text');
@@ -44,5 +44,5 @@ try{
   await context.close();
  }
  assert.deepEqual(errors,[]);await writeFile(out+'/audit.json',JSON.stringify({report,errors},null,2));
- console.log('PASS: 6 screens × 3 widths plus filled estimates; local fonts, navigation, mobile brief, keyboard close, search, no overflow or runtime errors.');
+ console.log('PASS: 5 screens × 3 widths plus filled estimates; local fonts, navigation, mobile brief, keyboard close, search, no overflow or runtime errors.');
 }finally{await browser.close();await new Promise(r=>server.close(r));}

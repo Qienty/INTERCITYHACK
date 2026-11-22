@@ -18,9 +18,12 @@ test('no invoice terms keeps the previous behaviour and no tax split', () => {
 test('invoice type, tax rate and source are validated; 不开票 requires neither rate nor source', () => {
   assert.deepEqual(validateBrief({...base,invoice:{type:'special',taxRate:6,source:'客户确认专票 6%'}}),[]);
   const missingSource=validateBrief({...base,invoice:{type:'special',taxRate:6,source:''}});
-  assert.ok(missingSource.some((error)=>/核实来源/.test(error)));
+  assert.deepEqual(missingSource,[],'missing invoice source must not block the quote');
   const badRate=validateBrief({...base,invoice:{type:'general',taxRate:0,source:'合同'}});
-  assert.ok(badRate.some((error)=>/税率/.test(error)));
+  assert.deepEqual(badRate,[],'invalid tax rate is a pending term, not a blocker');
+  const pending=calculatePlan(records,{...base,invoice:{type:'special',taxRate:6,source:''}},[]);
+  assert.ok(pending.lines.length>0,'quote remains when invoice source is pending');
+  assert.ok(pending.warnings.some((warning)=>/发票条款待补/.test(warning)));
   const badType=validateBrief({...base,invoice:{type:'vat',taxRate:6,source:'合同'}});
   assert.ok(badType.some((error)=>/发票类型/.test(error)));
   assert.deepEqual(validateBrief({...base,invoice:{type:'none',taxRate:0,source:''}}),[]);

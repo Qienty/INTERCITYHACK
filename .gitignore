@@ -10,12 +10,8 @@ test-results/
 __pycache__/
 *.pyc
 dist/
-data/*.xls
-data/*.xlsx
-data/*.csv
-data/**/*.xls
-data/**/*.xlsx
-data/**/*.csv
+# data/ 下的媒体数据（xls/xlsx/csv）随仓库一起版本化；
+# 但 data/private/ 含凭据与客户原始库存，永不入库
 .taste-skill/after/
 .taste-skill/before/
 .taste-skill/inspection/
@@ -25,3 +21,4 @@ tmp/
 # 本地工作产物（非源码）
 _duplicate_backup_*/
 .taste-skill/redesign/
+.chart-data-*/

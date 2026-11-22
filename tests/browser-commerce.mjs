@@ -42,6 +42,8 @@ try{
   // 结算发票与税率：金额不变，价税拆分只作信息
   const beforeInvoice=await total();
   await page.locator('[data-commerce="invoiceType"]').selectOption('special');
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator('.mix-quote-row.total dd').count(),1,'switching invoice type must not wipe the quote');
   await page.locator('[data-commerce="taxRate"]').selectOption('6');
   await page.locator('[data-commerce="taxSource"]').fill('客户确认增值税专票 6%');
   await page.locator('[data-commerce="taxSource"]').press('Tab');
