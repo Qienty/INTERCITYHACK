@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {createRequire} from 'node:module';
+import {dirname} from 'node:path';
+import {server} from '../server.mjs';
+import {unzip} from '../lib/xlsx.mjs';
+const require=createRequire(import.meta.url);let pw;try{pw=require('playwright');}catch{pw=require(resolve(dirname(dirname(process.execPath)),'node_modules/playwright'));}
+await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
+const browser=await pw.chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||(process.platform==='win32'?'msedge':undefined),headless:true});
+const context=await browser.newContext({viewport:{width:1440,height:1000},acceptDownloads:true}),page=await context.newPage(),errors=[];
+page.on('pageerror',error=>errors.push(error.message));
+try{
+  await page.goto(base);await page.evaluate(()=>localStorage.clear());await page.reload();
+  await page.locator('.mix-panel').waitFor();
+  await page.locator('.mix-panel [data-demo-mode="on"]').click();
+  await page.locator('#demo-mode-form').waitFor();
+  await page.locator('#demo-mode-form input[name="media"][value="metro"]').check();
+  await page.locator('#demo-mode-form button[type="submit"]').click();
+  await page.waitForFunction(()=>!document.querySelector('#modal').open);
+  await page.locator('[data-page="proposal"]').first().click();
+  await page.locator('[data-action="export-pptx"]').waitFor();
+  assert.equal(await page.locator('.selection-sheet').count(),2,'selection sheets render on the proposal');
+  assert.ok(await page.locator('.package-card').count()>=3,'package tiers render');
+  const [download]=await Promise.all([page.waitForEvent('download'),page.locator('[data-action="export-pptx"]').click()]);
+  assert.match(download.suggestedFilename(),/结案报告.*\.pptx$/);
+  const path=resolve('test-results','browser-closing-report.pptx');
+  await download.saveAs(path);
+  const bytes=await readFile(path);
+  assert.ok(bytes.length>20000,'downloaded deck has content');
+  const parts=unzip(bytes);
+  assert.ok(parts['ppt/presentation.xml'],'ppt part present');
+  const slides=Object.keys(parts).filter((name)=>/^ppt\/slides\/slide\d+\.xml$/.test(name));
+  assert.equal(slides.length,8,'closing report has eight slides');
+  assert.match(parts['ppt/slides/slide1.xml'],/项目概览/);
+  assert.match(parts['ppt/slides/slide6.xml'],/不展示触达/);
+  assert.match(parts['ppt/slides/slide1.xml'],/刊例测算/);
+  assert.deepEqual(errors,[]);
+  console.log('PASS browser closing report: proposal buttons, download filename, 8-slide PPTX with honest reach/CPM wording and demo labels');
+}finally{await context.close();await browser.close();await new Promise(r=>server.close(r));}

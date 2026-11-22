@@ -1,16 +1,24 @@
 {
   "name": "xinyun-proposal-studio",
-  "version": "1.1.0",
+  "version": "1.8.1",
   "private": true,
   "type": "module",
   "description": "上海新云传媒 · 户外媒体 AI 提案工作台",
   "scripts": {
     "start": "node server.mjs",
     "dev": "node server.mjs",
-    "test": "node --test tests/*.test.mjs",
-    "data:build": "python scripts/build-data.py"
+    "test": "node scripts/run-tests.mjs",
+    "test:browser": "node scripts/run-tests.mjs --browser",
+    "data:build": "python scripts/build-data.py",
+    "package": "node scripts/package.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19.0"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  },
+  "dependencies": {
+    "pdfjs-dist": "5.6.205"
   }
 }

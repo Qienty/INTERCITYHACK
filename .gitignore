@@ -7,9 +7,21 @@ uploads/
 test-results/
 *.log
 .tools/
+__pycache__/
+*.pyc
+dist/
 data/*.xls
 data/*.xlsx
 data/*.csv
+data/**/*.xls
+data/**/*.xlsx
+data/**/*.csv
 .taste-skill/after/
 .taste-skill/before/
 .taste-skill/inspection/
+tmp/
+比赛文档/
+
+# 本地工作产物（非源码）
+_duplicate_backup_*/
+.taste-skill/redesign/

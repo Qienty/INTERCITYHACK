@@ -16,15 +16,16 @@ for source in sorted(DATA.glob('*.xls')):
         if start is not None:
             for i in range(start+3,sheet.nrows):
                 row=sheet.row_values(i)
-                if len(row)>2 and row[0] in ['公交','地铁'] and str(row[2]).strip():
-                    routes.add(str(row[2]).strip())
+                if len(row)>2 and row[0] in ['公交','地铁','地铁出入口'] and str(row[2]).strip():
+                    routes.add(('公交' if row[0]=='公交' else '地铁出入口',str(row[2]).strip()))
     if len(routes)!=1:
         continue
-    actual=next(iter(routes))
-    label=re.sub(r'^.*?公交_?','',source.stem).split('__')[0]
-    if re.sub(r'路$','',label)==re.sub(r'路$','',actual):
+    media,actual=next(iter(routes))
+    label=re.sub(r'^.*?(?:公交|地铁出入口)_?','',source.stem).split('__')[0]
+    comparable_actual=re.sub(r'[\\/:*?"<>|]','-',actual)
+    if re.sub(r'路$','',label)==re.sub(r'路$','',comparable_actual):
         continue
-    prefix=re.split(r'公交',source.stem,maxsplit=1)[0]+'公交_'
+    prefix=re.split(r'公交|地铁出入口',source.stem,maxsplit=1)[0]+media+'_'
     safe=re.sub(r'[\\/:*?"<>|]','-',actual)
     target=DATA/(prefix+safe+'.xls')
     if target.exists():

@@ -2,6 +2,7 @@
 from pathlib import Path
 import sys, json, re, hashlib, warnings
 from collections import Counter, defaultdict
+import importlib.util
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / '.tools' / 'python'))
 import openpyxl
@@ -53,27 +54,31 @@ book.close()
 age_labels = ['20岁以下','20~30','30~40','40~50','50以上']
 slots = ['7点-10点','10点-16点','16点-20点','20点-22点']
 seen_reports = {}
-for file in sorted(DATA.glob('*.xls')):
+for file in sorted(DATA.rglob('*.xls'), key=lambda p:(len(p.relative_to(DATA).parts),p.as_posix())):
+    if any(part=='private' or part.startswith('.') for part in file.relative_to(DATA).parts):
+        continue
+    source_path = file.relative_to(DATA).as_posix()
     wb = xlrd.open_workbook(file)
     count = 0
+    month = ''
     for sh in wb.sheets():
         data = [sh.row_values(i) for i in range(sh.nrows)]
         start = next((i for i,r in enumerate(data) if r[:3]==['一级标签','二级标签','三级标签']), None)
         if start is None:
-            issues.append(file.name+'：未识别到所选明细值表，未绑定媒体')
+            issues.append(source_path+'：未识别到所选明细值表，未绑定媒体')
             continue
         month_row = next((r for r in data[:start] if re.fullmatch(r'2023\d{2}',str(r[0]))), None)
         if month_row is None:
             raise ValueError(file.name+'：缺少已核实的 2023 年月份')
         month = str(month_row[0])[:4]+'-'+str(month_row[0])[4:]
         title = str(data[0][0])
-        filename_route = re.sub(r'^.*?公交_?', '', file.stem)
-        expected = route_key(filename_route) if re.fullmatch(r'\d+路?', filename_route) else None
+        # Kept only as a compatibility key below; route cells remain authoritative.
         for row_num, row in enumerate(data[start+3:], start+4):
-            if len(row)<44 or row[0] not in ['公交','地铁'] or not str(row[2]).strip():
+            if len(row)<44 or row[0] not in ['公交','地铁','地铁出入口'] or not str(row[2]).strip():
                 continue
             route = str(row[2]).strip()
-            ident = 'INS-'+hashlib.sha1((file.name+'|'+str(row_num)).encode()).hexdigest()[:12]
+            filename_route = route
+            ident = 'INS-'+hashlib.sha1((source_path+'|'+str(row_num)).encode()).hexdigest()[:12]
             problems=[]
             # User confirmed that workbook contents are authoritative. Names never override route cells.
             digest=hashlib.sha256(json.dumps([month,row],ensure_ascii=False).encode()).hexdigest()
@@ -81,32 +86,58 @@ for file in sorted(DATA.glob('*.xls')):
             if not duplicate:
                 seen_reports[digest]=ident
             poi={str(data[start+1][i]):number(row[i]) for i in range(31,min(44,len(row))) if str(data[start+1][i]).strip()}
-            insight=dict(id=ident,source=file.name,sourceSheet=sh.name,sourceRow=row_num,sourceRef=sh.name+'!A'+str(row_num)+':AR'+str(row_num),sourceTitle=title,month=month,route=route,filenameRoute=filename_route,visits=number(row[3]),visitsDisplay=str(row[3]),people=number(row[4]),peopleDisplay=str(row[4]),timeSlots=[dict(label=k,value=number(row[5+i])) for i,k in enumerate(slots)],areaTypes={k:number(row[9+i]) for i,k in enumerate(['学校','医疗','小区','景点','餐饮'])},age=[dict(label=k,value=number(row[14+i])) for i,k in enumerate(age_labels)],gender=[dict(label=k,value=number(row[19+i])) for i,k in enumerate(['男性','女性'])],consumption=[dict(label=k,value=number(row[25+i])) for i,k in enumerate(['高','较高','中','较低','低'])],housing=[dict(label=k,value=number(row[21+i])) for i,k in enumerate(['无房','1套房','2套房','多套房'])],phoneBrand=str(row[30]),poi=poi,issues=problems,duplicateOf=duplicate,matchedIds=[])
+            insight=dict(id=ident,media='bus' if row[0]=='公交' else 'metro',mediaType=row[0],grade=str(row[1]),source=file.name,sourceSheet=sh.name,sourceRow=row_num,sourceRef=sh.name+'!A'+str(row_num)+':AR'+str(row_num),sourceTitle=title,month=month,route=route,filenameRoute=filename_route,visits=number(row[3]),visitsDisplay=str(row[3]),people=number(row[4]),peopleDisplay=str(row[4]),timeSlots=[dict(label=k,value=number(row[5+i])) for i,k in enumerate(slots)],areaTypes={k:number(row[9+i]) for i,k in enumerate(['学校','医疗','小区','景点','餐饮'])},age=[dict(label=k,value=number(row[14+i])) for i,k in enumerate(age_labels)],gender=[dict(label=k,value=number(row[19+i])) for i,k in enumerate(['男性','女性'])],consumption=[dict(label=k,value=number(row[25+i])) for i,k in enumerate(['高','较高','中','较低','低'])],housing=[dict(label=k,value=number(row[21+i])) for i,k in enumerate(['无房','1套房','2套房','多套房'])],phoneBrand=str(row[30]),poi=poi,issues=problems,duplicateOf=duplicate,matchedIds=[])
             for resource in records:
                 aliases = [route_key(x) for x in resource['name'].split('/')]
-                if route_key(route) in aliases:
+                if resource['media']==insight['media'] and route_key(route) in aliases:
                     resource['insightIds'].append(ident)
                     insight['matchedIds'].append(resource['id'])
             if not insight['matchedIds'] and not problems:
                 insight['issues'].append('当前库存文件没有同名线路，保留独立报告')
             insights.append(insight)
             count+=1
-    files.append(dict(name=file.name,type='历史人流画像',count=count,month=month))
+    wb.release_resources()
+    for item in insights[-count:] if count else []:
+        item['source'] = source_path
+    files.append(dict(name=source_path,type='历史人流画像',count=count,month=month))
 
 for resource in records:
+    resource['rateIds']=[]
     linked=[i for i in insights if i['id'] in resource['insightIds']]
+    resource['trafficReportCount']=len(linked)
     if len(linked)==1:
         resource['traffic']=linked[0]['people']
         resource['trafficMonth']=linked[0]['month']
-    # Separate reports for a combined route are never summed into one audience number.
-issues += ['库存文件没有可售起止日期和查询日期，无法核定 2027 档期。','尚无刊例价、制作费和含税口径，所有报价保持待补充。','未提供经纬度、门店清单或线路轨迹，地图不生成位置或覆盖圈。','2023-05 人流为历史所选区域数据，不能直接当作 2027 广告曝光或跨线路去重人数。']
+        resource['trafficStatus']='单报告原表人数；历史数据，非广告曝光'
+    elif linked:
+        resource['trafficStatus']='多报告不取单一数值；请分别查看原表，不累加、不任意选取'
+    else:
+        resource['trafficStatus']='无同名报告，未填人流量'
+    resource['trafficSources']=[i['source'] for i in linked]
+spec=importlib.util.spec_from_file_location('source_materials',ROOT/'scripts'/'source-materials.py')
+materials=importlib.util.module_from_spec(spec);spec.loader.exec_module(materials)
+rates,pois,searches,templates,extra_files,extra_issues,snapshots=materials.read_materials(DATA,records)
+files.extend(extra_files);issues.extend(extra_issues)
+coverage_spec=importlib.util.spec_from_file_location('coverage_materials',ROOT/'scripts'/'coverage-materials.py')
+coverage_module=importlib.util.module_from_spec(coverage_spec);coverage_spec.loader.exec_module(coverage_module)
+coverage,coverage_files,coverage_issues=coverage_module.read_coverage(DATA,records)
+files.extend(coverage_files);issues.extend(coverage_issues)
+for file in files:file['sha256']=hashlib.sha256((DATA/file['name']).read_bytes()).hexdigest()
+issues += ['库存文件没有可售起止日期和查询日期，无法核定 2027 档期。','刊例价为脱敏区间，含税口径及精确成交价未提供；原始发布期不自动折算成 28 天。','来源点位坐标系未注明；不是客户门店或广告库存，不自动参与距离配单。','2023-05 人流为历史所选区域数据，不能直接当作 2027 广告曝光或跨线路去重人数。']
 summary=dict(totalCapacity=sum(r['capacity'] or 0 for r in records),available=sum(r['available'] or 0 for r in records),contracted=sum(r['contracted'] or 0 for r in records),reserved=sum(r['reserved'] or 0 for r in records),maintenance=sum(r['maintenance'] or 0 for r in records),withVacancy=sum((r['available'] or 0)>0 for r in records),withInsights=sum(bool(r['insightIds']) for r in records),linkedInsights=sum(bool(i['matchedIds']) for i in insights),unlinkedInsights=sum(not i['matchedIds'] for i in insights))
-version=hashlib.sha256(b''.join((DATA/f['name']).read_bytes() for f in files)).hexdigest()[:16]
+payload=json.dumps([records,insights,rates,pois,searches,templates,coverage,snapshots,files],ensure_ascii=False,sort_keys=True,separators=(',',':')).encode('utf-8')
+version=hashlib.sha256(payload).hexdigest()[:16]
 rename_file=DATA/'source-renames.json'
 renames=json.loads(rename_file.read_text(encoding='utf-8')) if rename_file.exists() else []
-manifest=dict(version=version,files=files,inventoryCount=len(records),insightCount=len(insights),summary=summary,issues=issues,renames=renames,sourcePolicy='表内数据为准；只按表内线路调整冲突文件名；不填写不存在的价格、日期、坐标或业务事实')
+renames=[dict(entry,sourcePresent=(DATA/entry['name']).is_file(),currentSHA256=hashlib.sha256((DATA/entry['name']).read_bytes()).hexdigest() if (DATA/entry['name']).is_file() else None) for entry in renames]
+for entry in renames:entry['sourceContentUnchanged']=entry['currentSHA256']==entry['sha256']
+summary.update(rateReferences=len(rates),withRateReferences=sum(bool(r.get('rateIds')) for r in records),sourcePlaces=len(pois),metroInsights=sum(i['media']=='metro' for i in insights),busInsights=sum(i['media']=='bus' for i in insights),searchSummaries=len(searches),blankTemplates=sum(not t['filledCount'] for t in templates))
+report_hashes=[f['sha256'] for f in files if f['type']=='历史人流画像']
+summary.update(reportSourceFiles=len(report_hashes),byteDuplicateReports=len(report_hashes)-len(set(report_hashes)),distinctInsightGroups=sum(not i['duplicateOf'] for i in insights),duplicateInsights=sum(bool(i['duplicateOf']) for i in insights),unlinkedDuplicateInsights=sum(not i['matchedIds'] and bool(i['duplicateOf']) for i in insights),unlinkedDistinctGroups=len(set(i['duplicateOf'] or i['id'] for i in insights if not i['matchedIds'])),singleReportInventory=sum(len(r['insightIds'])==1 for r in records),multiReportInventory=sum(len(r['insightIds'])>1 for r in records),linkedRateReferences=sum(bool(r['matchedIds']) for r in rates),unlinkedRateReferences=sum(not r['matchedIds'] for r in rates))
+manifest=dict(version=version,files=files,inventoryCount=len(records),insightCount=len(insights),summary=summary,issues=issues,renames=renames,sourcePolicy='表内数据为准；只按表内线路调整冲突文件名；价格区间与原始周期独立保留，不代填精确报价、税费、可售档期或坐标系')
+summary.update(coverageReports=len(coverage),coverageSummaryRows=sum(len(r['summary']) for r in coverage),coverageDetailRows=sum(len(r['details']) for r in coverage),withCoverage=sum(bool(r['coverageIds']) for r in records),coverageLinkedRows=sum(bool(r['matchedIds']) for report in coverage for r in report['summary']),coverageDuplicateReports=sum(bool(r['duplicateOf']) for r in coverage))
 out='// Generated by scripts/build-data.py from user-provided files. Do not edit the source workbooks.\n'
-for name,value in [('realInventory',records),('realInsights',insights),('dataManifest',manifest)]:
+for name,value in [('realInventory',records),('realInsights',insights),('realRates',rates),('realPOIs',pois),('realSearches',searches),('realBriefSources',templates),('realCoverage',coverage),('realInventorySnapshots',snapshots),('dataManifest',manifest)]:
     out+='export const '+name+'='+json.dumps(value,ensure_ascii=False,separators=(',',':'))+';\n'
 (DATA/'real-data.mjs').write_text(out,encoding='utf-8')
 print(json.dumps({'inventoryCount':len(records),'insightCount':len(insights),'summary':summary,'issues':[{'file':i['source'],'route':i['route'],'issues':i['issues']} for i in insights if i['issues']]},ensure_ascii=False,indent=2))

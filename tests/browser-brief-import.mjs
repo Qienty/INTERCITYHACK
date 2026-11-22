@@ -4,10 +4,10 @@ import {mkdir,readFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import {writeXlsx} from '../lib/xlsx.mjs';
 import {parseCSV,toCSV} from '../lib/engine.mjs';
-import {realInventory} from '../data/real-data.mjs';
+import {sourceInventory as realInventory} from '../lib/source-catalog.mjs';
 const require=createRequire(import.meta.url);let pw;try{pw=require('playwright');}catch{pw=require(resolve(dirname(dirname(process.execPath)),'node_modules/playwright'));}
 const dir=resolve('test-results');await mkdir(dir,{recursive:true});
-const browser=await pw.chromium.launch({channel:process.platform==='win32'?'msedge':undefined,headless:true});
+const browser=await pw.chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||(process.platform==='win32'?'msedge':undefined),headless:true});
 const context=await browser.newContext({viewport:{width:1440,height:1050},acceptDownloads:true});
 const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
 const saved=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('xinyun-studio-v2-real')||'null'));

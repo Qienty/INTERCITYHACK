@@ -29,7 +29,7 @@ test('search uses all real rows before pagination and locates linked reports',()
   assert.deepEqual(searchMaterials(inputs,'__no_such_material_548__'),[]);
 });
 test('separate source reports remain searchable without duplicate file cards',()=>{
-  const reports=searchMaterials(inputs,'历史人流','insight');assert.equal(reports.length,26);
+  const reports=searchMaterials(inputs,'历史人流','insight');assert.equal(reports.length,realInsights.length);
   const found=searchMaterials(inputs,realInsights[0].source);assert.equal(found.filter(r=>r.kind==='insight').length,1);assert.equal(found.filter(r=>r.kind==='file').length,0);
   assert.equal(searchMaterials(inputs,'公交车身媒体库存.xlsx','file').length,1);
 });
